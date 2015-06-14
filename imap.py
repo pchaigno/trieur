@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 list_response_pattern = re.compile(r'\((?P<flags>.*?)\) "(?P<delimiter>.*)" (?P<name>.*)')
 
 # List of common folder names to ignore.
-ignore = ['Trash', 'INBOX', 'Brouillons', 'Corbeille', 'Draft', 'Junk']
+ignore = ['Sent', 'Trash', 'INBOX', 'Brouillons', 'Corbeille', 'Draft', 'Junk']
 
 
 """Extract text parts of a HTML document.
@@ -86,7 +86,39 @@ def reencode(text, charset = None):
 	return text.encode('utf8')
 
 
-"""Decodes an email body and reencode it in UTF-8.
+"""Decodes a payload from an email body and reencodes it in UTF-8.
+
+If the email body is a HTML document, will extract text from that document.
+
+Args:
+	payload: Email body payload.
+
+Returns:
+	Tuple with a boolean to True if the payload was a HTML document
+	and email payload as text encoded in UTF-8.
+"""
+def get_decoded_email_payload(payload):
+	charset = payload.get_content_charset()
+	text = payload.get_payload(decode=True)
+	text = reencode(text, charset)
+
+	if text is None:
+		return None
+
+	if content_type == 'text/plain':
+		return (False, text.strip())
+
+	if content_type == 'text/html':
+		# If it's a HTML document we need to extract the text
+		# and reencode it to be sure:
+		text_encoded = html2text(text.strip())
+		text = reencode(text_encoded)
+		return (True, text)
+
+	return None
+
+
+"""Decodes an email body and reencodes it in UTF-8.
 
 If the email body is a HTML document, will extract text from that document.
 
@@ -97,35 +129,32 @@ Returns:
 	Message body as text encoded in UTF-8.
 """
 def get_decoded_email_body(msg):
-	text = ""
 	if msg.is_multipart():
-		html = None
-		for part in msg.get_payload():
-			if part.get_content_charset() is None:
+		html_text = None
+		# Iterates on message parts to find one we can use:
+		for payload in msg.get_payload():
+			content_type = payload.get_content_type()
+			if content_type !=  None:
 				continue
  
-			charset = part.get_content_charset()
- 
-			if part.get_content_type() == 'text/plain':
-				text = part.get_payload(decode=True)
-				text = reencode(text, charset)
+ 			# Extracts what we can from the payload:
+ 			text_object = get_decoded_email_payload(payload)
+			if text is not None:
+				(is_html, text) = text_object
+				if is_html:
+					return text_object
+				else:
+					html_text = text
 
-			if part.get_content_type() == 'text/html':
-				html = part.get_payload(decode=True)
-				html = reencode(html, charset)
- 
-		if text is not None:
-			return (False, text.strip())
-		elif html is not None:
-			text_encoded = html2text(html.strip())
-			text = reencode(text_encoded)
-			return (True, text)
+		# Only uses the HTML part if no text part was found.
+		if html_text is not None:
+			return (True, html_text)
 		else:
 			return None
-	elif msg.get_content_type() == 'text/plain' or msg.get_content_type() == 'text/html':
-		text = reencode(msg.get_payload(decode=True), msg.get_content_charset())
-		is_html = msg.get_content_type() == 'text/html'
-		return (is_html, text.strip())
+
+	else:
+		payload = msg.get_payload(decode=True)
+		return get_decoded_email_payload(payload)
 
 
 """Retrieves all messages from a given folder.
@@ -141,18 +170,24 @@ Returns:
 def retrieve_messages(connection, folder):
 	connection.select(folder, readonly=True)
 
+	# Iterates on messages in the folder:
 	messages = []
 	i = 1
 	while True:
 		try:
 			mail = connection.fetch(i, '(RFC822)')[1][0]
 		except imaplib.IMAP4_SSL.error:
+		# Usually means we reached the last folder.
 			break
+
+		# Some implementations return None instead of throwing an error:
 		if not mail:
 			break
 		(typ, msg_data) = mail
 		if not msg_data or not msg_data[0]:
 			break
+
+		# Reads and adds message to the list:
 		msg = email.message_from_string(msg_data)
 		text, encoding = email.Header.decode_header(msg['subject'])[0]
 		subject = reencode(text, encoding)
@@ -161,9 +196,32 @@ def retrieve_messages(connection, folder):
 			(is_html, text_body) = body_object
 			if text_body:
 				messages.append((subject, msg['to'], msg['from'], is_html, text_body))
+
 		i += 1
 
 	return messages
+
+
+"""Opens a connection to an IMAP server.
+
+Information in the login file should have the format:
+imap_server_address:username:password
+
+Args:
+	login_file: File with information to connect to the IMAP server.
+
+Returns:
+	Opened connection to the mailbox
+"""
+def connect(login_file):
+	with open(login_file, 'r') as file_handle:
+		content = file_handle.read().strip().split(":")
+		imap_server = content[0]
+		login = content[1]
+		password = content[2]
+	connection = imaplib.IMAP4_SSL(imap_server)
+	connection.login(login, password)
+	return connection
 
 
 """Reads emails from leaf folders of a mail account and writes them on the disk.
@@ -176,21 +234,21 @@ with the following format: imap_server_address:login:password
 Writes emails in files in emails/[folder's name]/.
 """
 if __name__ == '__main__':
-	with open('password', 'r') as content_file:
-		content = content_file.read().strip().split(":")
-		imap_server = content[0]
-		login = content[1]
-		password = content[2]
-	connection = imaplib.IMAP4_SSL(imap_server)
-	connection.login(login, password)
+	connection = connect('password')
 
+	# Retrieves folder list.
 	folders = get_folders(connection)
+	
 	num_mail = 0
 	for folder in folders:
 		if not folder in ignore:
 			print("%s:" % folder.upper())
+
+			# Retrieves all messages in the folder.
 			messages = retrieve_messages(connection, folder)
+			
 			if len(messages) >= 10:
+				# Creates directory if it doesn't exist:
 				directory = os.path.join("emails", folder.replace('/', '__').replace(' ', '_'))
 				if not os.path.exists(directory):
 					os.makedirs(directory)
@@ -201,6 +259,8 @@ if __name__ == '__main__':
 					sender = message[2]
 					mail_content = message[4]
 					print(subject)
+
+					# Writes message to file:
 					fo = open(os.path.join(directory, str(num_mail)), "wb")
 					fo.write(subject)
 					if recipient:
@@ -209,8 +269,10 @@ if __name__ == '__main__':
 						fo.write(sender)
 					fo.write(mail_content)
 					fo.close()
+					
 					num_mail += 1
 			else:
+				# Only saves messages if there are enough in the folder.
 				print("Not enough mails to train.")
 
 			print("")
