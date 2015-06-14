@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 import imaplib
 import re
+import pprint
 import sys
 import os
+import argparse
 import email
 import chardet
 from bs4 import BeautifulSoup
@@ -28,7 +30,7 @@ def html2text(html):
 	soup = BeautifulSoup(html)
 	for script in soup(["script", "style"]):
 	    script.extract()
-	text = soup.get_text()
+	text = soup.get_text().encode('utf8')
 	lines = (line.strip() for line in text.splitlines())
 	chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
 	text = '\n'.join(chunk for chunk in chunks if chunk)
@@ -98,6 +100,10 @@ Returns:
 	and email payload as text encoded in UTF-8.
 """
 def get_decoded_email_payload(payload):
+	content_type = payload.get_content_type()
+	if content_type != "text/plain" and content_type != "text/html":
+		return None
+
 	charset = payload.get_content_charset()
 	text = payload.get_payload(decode=True)
 	text = reencode(text, charset)
@@ -105,17 +111,14 @@ def get_decoded_email_payload(payload):
 	if text is None:
 		return None
 
-	if content_type == 'text/plain':
+	if payload.get_content_type() == 'text/plain':
 		return (False, text.strip())
 
-	if content_type == 'text/html':
-		# If it's a HTML document we need to extract the text
-		# and reencode it to be sure:
-		text_encoded = html2text(text.strip())
-		text = reencode(text_encoded)
-		return (True, text)
-
-	return None
+	# If it's a HTML document we need to extract the text
+	# and reencode it to be sure:
+	text_encoded = html2text(text.strip())
+	text = reencode(text_encoded)
+	return (True, text)
 
 
 """Decodes an email body and reencodes it in UTF-8.
@@ -153,8 +156,7 @@ def get_decoded_email_body(msg):
 			return None
 
 	else:
-		payload = msg.get_payload(decode=True)
-		return get_decoded_email_payload(payload)
+		return get_decoded_email_payload(msg)
 
 
 """Retrieves all messages from a given folder.
@@ -224,17 +226,21 @@ def connect(login_file):
 	return connection
 
 
-"""Reads emails from leaf folders of a mail account and writes them on the disk.
+"""Reads emails from leaf folders of a email account and writes them on the disk.
 
 Connection is opened in SSL.
-
-Information to connect to the mail account must be in a 'password' file
-with the following format: imap_server_address:login:password
-
-Writes emails in files in emails/[folder's name]/.
 """
 if __name__ == '__main__':
-	connection = connect('password')
+	parser = argparse.ArgumentParser(description='Reads emails from leaf folders of an email account and writes them on the disk.')
+	parser.add_argument('password_file', type=str,
+		help='File with information to connect to the IMAP server. Format must be imap_server_address:username:password.')
+	parser.add_argument('output_dir', type=str,
+		help='Directory where the emails will be writen, in folders matching the mailbox folders.')
+	parser.add_argument('-m', '--min-nb-emails', type=int, default=10,
+		help='Minimum number of emails in a folder to be retrieved. Default is 10. Folders with too few emails are useless for the classifier.')
+	args = parser.parse_args()
+
+	connection = connect(args.password_file)
 
 	# Retrieves folder list.
 	folders = get_folders(connection)
@@ -247,9 +253,9 @@ if __name__ == '__main__':
 			# Retrieves all messages in the folder.
 			messages = retrieve_messages(connection, folder)
 			
-			if len(messages) >= 10:
+			if len(messages) >= args.min_nb_emails:
 				# Creates directory if it doesn't exist:
-				directory = os.path.join("emails", folder.replace('/', '__').replace(' ', '_'))
+				directory = os.path.join(args.output_dir, folder.replace('/', '__').replace(' ', '_'))
 				if not os.path.exists(directory):
 					os.makedirs(directory)
 
@@ -269,7 +275,7 @@ if __name__ == '__main__':
 						fo.write(sender)
 					fo.write(mail_content)
 					fo.close()
-					
+
 					num_mail += 1
 			else:
 				# Only saves messages if there are enough in the folder.

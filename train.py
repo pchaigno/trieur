@@ -7,11 +7,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.grid_search import GridSearchCV
 from sklearn import cross_validation
 import numpy
+import argparse
 
 
 """Trains a classifier from sample files.
 
 Args:
+	emails: Data set of emails in different categories.
 	classifier_type: Type of the classifier (either MultinomialNB or SGDClassifier).
 
 Returns:
@@ -43,10 +45,19 @@ def train_classifier(emails, classifier_type = 'MultinomialNB'):
 
 """
 if __name__ == "__main__":
-	# Loads emails.
-	emails = load_files(container_path='emails', shuffle=True, random_state=42)
+	parser = argparse.ArgumentParser(description='Trains a classifier and performs tenfold cross-validation on it.')
+	parser.add_argument('input_dir', type=str,
+		help='Directory with emails for training in different folders. Each folder will correspond to one classification category. Each email must be in its own file.')
+	parser.add_argument('-c', '--classifier', type=str, default='MultinomialNB',
+		help='Type of the classifier. Default is MultinomialNB. Can be either MultinomialNB or SGDClassifier.')
+	parser.add_argument('-f', '--folds', type=int, default=10,
+		help='Number of folds for cross-validation. Default is 10.')
+	args = parser.parse_args()
 
-	classifier = train_classifier(emails, 'MultinomialNB')
+	# Loads emails.
+	emails = load_files(container_path=args.input_dir, shuffle=True, random_state=42)
+
+	classifier = train_classifier(emails, args.classifier)
 
 	# Performs tenfold cross-validation: 
 	scores = cross_validation.cross_val_score(classifier, emails.data, emails.target, cv=10)
