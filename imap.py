@@ -4,6 +4,7 @@ import re
 import pprint
 import sys
 import os
+import getpass
 import argparse
 import email
 import chardet
@@ -206,23 +207,17 @@ def retrieve_messages(connection, folder):
 
 """Opens a connection to an IMAP server.
 
-Information in the login file should have the format:
-imap_server_address:username:password
-
 Args:
-	login_file: File with information to connect to the IMAP server.
+	imap_server: Address of the IMAP server.
+	username: Username to login on the IMAP server.
+	password: Password associated to that username.
 
 Returns:
 	Opened connection to the mailbox
 """
-def connect(login_file):
-	with open(login_file, 'r') as file_handle:
-		content = file_handle.read().strip().split(":")
-		imap_server = content[0]
-		login = content[1]
-		password = content[2]
+def connect(imap_server, username, password):
 	connection = imaplib.IMAP4_SSL(imap_server)
-	connection.login(login, password)
+	connection.login(username, password)
 	return connection
 
 
@@ -232,15 +227,17 @@ Connection is opened in SSL.
 """
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Reads emails from leaf folders of an email account and writes them on the disk.')
-	parser.add_argument('password_file', type=str,
-		help='File with information to connect to the IMAP server. Format must be imap_server_address:username:password.')
+	parser.add_argument('imap_server', type=str,
+		help='Address of the IMAP server.')
 	parser.add_argument('output_dir', type=str,
 		help='Directory where the emails will be writen, in folders matching the mailbox folders.')
 	parser.add_argument('-m', '--min-nb-emails', type=int, default=10,
 		help='Minimum number of emails in a folder to be retrieved. Default is 10. Folders with too few emails are useless for the classifier.')
 	args = parser.parse_args()
 
-	connection = connect(args.password_file)
+	username = raw_input("Username: ")
+	password = getpass.getpass()
+	connection = connect(args.imap_server, username, password)
 
 	# Retrieves folder list.
 	folders = get_folders(connection)
