@@ -28,7 +28,7 @@ Returns:
 	Text parts of the HTML document.
 """
 def html2text(html):
-	soup = BeautifulSoup(html)
+	soup = BeautifulSoup(html, "lxml")
 	for script in soup(["script", "style"]):
 	    script.extract()
 	text = soup.get_text().encode('utf8')
@@ -140,7 +140,7 @@ def get_decoded_email_body(msg):
 			content_type = payload.get_content_type()
 			if content_type !=  None:
 				continue
- 
+
  			# Extracts what we can from the payload:
  			text_object = get_decoded_email_payload(payload)
 			if text is not None:
@@ -241,7 +241,7 @@ if __name__ == '__main__':
 
 	# Retrieves folder list.
 	folders = get_folders(connection)
-	
+
 	num_mail = 0
 	for folder in folders:
 		if not folder in ignore:
@@ -249,7 +249,7 @@ if __name__ == '__main__':
 
 			# Retrieves all messages in the folder.
 			messages = retrieve_messages(connection, folder)
-			
+
 			if len(messages) >= args.min_nb_emails:
 				# Creates directory if it doesn't exist:
 				directory = os.path.join(args.output_dir, folder.replace('/', '__').replace(' ', '_'))
