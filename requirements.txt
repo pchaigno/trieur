@@ -1,0 +1,4 @@
+BeautifulSoup4
+scipy
+numpy
+scikit-learn

@@ -7,6 +7,7 @@ Right now, I need help to validate my first simple implementation.
 ## Usage & Validation
 
 0. Retrieve the project: `git clone https://github.com/pchaigno/trieur && cd trieur/`.
+0. Install the dependencies: `sudo apt-get install gfortran libopenblas-dev liblapack-dev && sudo pip install -r requirements.txt`
 0. Download your emails: `./imap.py imap_server path/to/temp/folder`.
 0. Test the Bayesian classifier: `./train.py path/to/temp/folder`.
 0. Test the SVM classifier: `./train.py -c SGDClassifier path/to/temp/folder`.
